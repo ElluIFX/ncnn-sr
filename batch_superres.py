@@ -69,12 +69,29 @@ print()
 
 poweroff = False
 crf = 17
+extra_args = ""
 get = input("> Poweroff after superres (y/N): ").strip()
 if "y" in get.lower():
     poweroff = True
 get = input("> CRF (17): ").strip()
 if get != "":
     crf = int(get)
+
+
+def get_extra_args():
+    global extra_args
+    get = input("> Extra args (? for help): ").strip()
+    if len(get)==0:
+        return
+    if get[0] == "?":
+        command = f"{excuteable} {target} --help"
+        os.system(command)
+        return get_extra_args()
+    elif get != "":
+        extra_args = get
+
+
+get_extra_args()
 
 print()
 i = 0
@@ -84,7 +101,7 @@ for file, scale, cu, denoise in zip(filelist, arg_scale, arg_cu, arg_denoise):
         f"File-{i:02d}: {file}\n> Args: Res-scale={scale} cugan={cu} denoise={denoise}"
     )
     print()
-print("Global args: poweroff={0} crf={1}".format(poweroff, crf))
+print(f"Global args: poweroff={poweroff} crf={crf} extra_args={extra_args}")
 print()
 input("Check above. Press Enter to continue...")
 print("Starting superres")
@@ -100,6 +117,7 @@ for file, scale, cu, denoise in zip(filelist, arg_scale, arg_cu, arg_denoise):
         command += "--model RealCUGAN "
         if denoise:
             command += "--denoise "
+    command += f"{extra_args} "
     command += file
     print(f"[{i}/{len(filelist)}] command: {command}")
     ret = os.system(command)

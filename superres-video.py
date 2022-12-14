@@ -122,22 +122,23 @@ if args.model != "RealCUGAN" and args.denoise:
 
 print("Initializing ncnn model...\n")
 if args.model == "RealESR":
+    model_name = f"realesr-animevideov3-x{args.scale}"
     model = RealESRGAN(
         gpuid=args.gpu,
-        model=f"realesr-animevideov3-x{args.scale}",
+        model=model_name,
         tilesize=args.tilesize,
         tta_mode=args.tta,
     )
 elif args.model == "RealCUGAN":
-    _model_name = f"up{args.scale}x-{'denoise_3' if args.denoise else 'conservative'}"
+    model_name = f"up{args.scale}x-{'denoise_3' if args.denoise else 'conservative'}"
     model = RealCUGAN(
         gpuid=args.gpu,
-        model=_model_name,
+        model=model_name,
         num_threads=4,
         tilesize=args.tilesize,
         tta_mode=args.tta,
     )
-print(f"Using device: {args.gpu}")
+print(f"Loaded model: [{args.model}]{model_name} with device {args.gpu}")
 
 videoCapture = cv2.VideoCapture(args.video)
 fps = videoCapture.get(cv2.CAP_PROP_FPS)
@@ -149,6 +150,7 @@ print(
     f"Input info:{tot_frame} frames in total, {fps} fps, {width}x{height} to {width*args.scale}x{height*args.scale}"
 )
 
+assert args.start_point < tot_frame, "Start point should be smaller than total frame"
 tot_frame -= args.start_point
 if args.stop_time > 0:
     tot_frame = min(int(args.stop_time * fps), tot_frame)
@@ -198,28 +200,15 @@ else:
         pass
     origin_file = ShortName(os.path.abspath(args.video))
     quality_option = "-crf" if "lib" in args.encoder else "-q:v"
-    if args.start_point == 0:
-        command = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "rawvideo", "-vcodec", "rawvideo",
-            "-s", f"{int(w*args.scale)}x{int(h*args.scale)}",
-            "-pix_fmt", "bgr24", "-r", f"{fps}",
-            "-i", "-", "-i", origin_file,
-            "-map", "0:v:0", "-map", "1:a:0?",
-            "-c:v", args.encoder, quality_option, str(args.crf),
-            "-c:a", "copy",
-            ShortName(vid_out_name),
-        ]  # fmt: skip
-    else:  # disable audio copy
-        command = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-f", "rawvideo", "-vcodec", "rawvideo",
-            "-s", f"{int(w*args.scale)}x{int(h*args.scale)}",
-            "-pix_fmt", "bgr24", "-r", f"{fps}",
-            "-i", "-",
-            "-c:v", args.encoder, quality_option, str(args.crf),
-            ShortName(vid_out_name),
-        ]  # fmt: skip
+    command = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "rawvideo", "-vcodec", "rawvideo",
+        "-s", f"{int(w*args.scale)}x{int(h*args.scale)}",
+        "-pix_fmt", "bgr24", "-r", f"{fps}",
+        "-i", "-",
+        "-c:v", args.encoder, quality_option, str(args.crf),
+        ShortName(vid_out_name),
+    ]  # fmt: skip
     if args.debug:
         print(f"FFmpeg command: {' '.join(command)}")
     proc = sp.Popen(command, stdin=sp.PIPE, shell=True)
@@ -464,7 +453,6 @@ else:
         proc.stdin.close()
         proc.stdout.close()
         proc.stderr.close()
-        break
     except:
         pass
     proc.wait()
@@ -509,4 +497,6 @@ if (not args.no_compression) and end_point is None and args.start_point == 0:
     if not failed:
         os.remove(vid_out_name)
 
-print("Process finished, waiting for model backend to be released")
+print(
+    "Process finished, waiting for model backend to be released, you can close the window now"
+)
