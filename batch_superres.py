@@ -2,16 +2,16 @@ import os
 import sys
 import time
 
+from rich.prompt import Confirm, FloatPrompt, IntPrompt, Prompt
+
 path = os.path.abspath(os.path.dirname(__file__))
-excuteable = os.path.join(path, "venv", "Scripts", "python.exe")
-if " " in excuteable:
-    excuteable = '"' + excuteable + '"'
-target = r"./superres-video.py"
+target = "py -3.7 ./superres-video.py"
 
 filelist = []
 arg_scale = []
 arg_cu = []
 arg_denoise = []
+extra_args = ""
 
 if not os.path.normcase(os.getcwd()) == os.path.normcase(path):
     os.chdir(path)
@@ -21,24 +21,15 @@ path = r'"' + path + r'"'
 
 
 def get_arg():
-    get = input("> Resolution scale (2): ").strip()
-    if get == "":
-        get = "2"
-    get = int(get)
-    arg_scale.append(get)
+    scale = FloatPrompt.ask("Resolution scale", default=2.0)
+    arg_scale.append(scale)
 
-    get = input("> Use cugan (y/N): ").strip()
-    if "y" in get.lower():
-        arg_cu.append(True)
-    else:
-        arg_cu.append(False)
+    cugan = Confirm.ask("Use cugan (or esrgan)", default=False)
+    arg_cu.append(cugan)
 
     if arg_cu[-1]:
-        get = input("> Use denoise (y/N): ").strip()
-        if "y" in get.lower():
-            arg_denoise.append(True)
-        else:
-            arg_denoise.append(False)
+        denoise = Confirm.ask("Denoise", default=True)
+        arg_denoise.append(denoise)
     else:
         arg_denoise.append(False)
     print()
@@ -49,49 +40,50 @@ in_file = sys.argv[1:]
 for f in in_file:
     i += 1
     if not f.startswith(r'"'):
-        f = r'"' + f + r'"'
-    filelist.append(f)
+        ff = r'"' + f + r'"'
+    else:
+        ff = f
+    filelist.append(ff)
     print(f"Get file-{i:02d} path: ", f)
 
     get_arg()
 
 while True:
     i += 1
-    get = input(f"Input file-{i:02d} path: ").strip()
+    get = Prompt.ask(f"Input file-{i:02d} path").strip()
     if get == "":
         break
     if not get.startswith(r'"'):
-        get = r'"' + get + r'"'
-    filelist.append(get)
-
+        ff = r'"' + f + r'"'
+    else:
+        ff = get
+    filelist.append(ff)
     get_arg()
+
 print()
 
-poweroff = False
-crf = 17
 extra_args = ""
-get = input("> Poweroff after superres (y/N): ").strip()
-if "y" in get.lower():
-    poweroff = True
-get = input("> CRF (17): ").strip()
-if get != "":
-    crf = int(get)
+poweroff = Confirm.ask("Poweroff after superres", default=False)
+crf = IntPrompt.ask("Quality", default=17)
+extra_args += f"--quality {crf} "
+if Confirm.ask("Use HEVC", default=False):
+    extra_args += "--codec hevc_qsv "
 
 
 def get_extra_args():
-    global extra_args
-    get = input("> Extra args (? for help): ").strip()
-    if len(get)==0:
-        return
+    get = Prompt.ask("> Extra args (? for help)").strip()
+    if len(get) == 0:
+        return ""
     if get[0] == "?":
-        command = f"{excuteable} {target} --help"
+        command = f"{target} --help"
         os.system(command)
         return get_extra_args()
     elif get != "":
-        extra_args = get
+        return " " + get
+    return ""
 
 
-get_extra_args()
+extra_args += get_extra_args()
 
 print()
 i = 0
@@ -111,12 +103,13 @@ t_start = time.time()
 i = 0
 for file, scale, cu, denoise in zip(filelist, arg_scale, arg_cu, arg_denoise):
     i += 1
-    command = f"{excuteable} {target} --scale {scale} "
-    command += f"--crf {crf} "
+    command = f"{target} --scale {scale} "
     if cu:
         command += "--model RealCUGAN "
         if denoise:
             command += "--denoise "
+    else:
+        command += "--model RealESR "
     command += f"{extra_args} "
     command += file
     print(f"[{i}/{len(filelist)}] command: {command}")
