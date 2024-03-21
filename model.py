@@ -8,21 +8,22 @@ from typing import List
 import numpy as np
 from loguru import logger
 
-from ncnnCugan import RealCUGAN
-from ncnnRealESR import RealESRGAN
-
-python_version = sys.version_info[:2]
-if python_version != (3, 7):
-    raise RuntimeError(f"This script only works with Python 3.7, not {python_version}")
-
-dll_folder_path = os.path.join(os.path.dirname(__file__), "dlls")
-sys.path.append(dll_folder_path)
-
 if current_process().name != "MainProcess":
     logger.remove()  # Disable logging in child processes
 
 
-class Model:
+def check_for_ncnn():
+    python_version = sys.version_info[:2]
+    if python_version != (3, 7):
+        raise RuntimeError(
+            f"This script only works with Python 3.7, not {python_version}"
+        )
+
+    dll_folder_path = os.path.join(os.path.dirname(__file__), "dlls")
+    sys.path.append(dll_folder_path)
+
+
+class NCNNModel:
     def __init__(
         self,
         scale: int,
@@ -34,6 +35,8 @@ class Model:
     ) -> None:
         logger.info("Initializing ncnn model...")
         if model == "RealESR":
+            from ncnnRealESR import RealESRGAN
+
             if denoise:
                 logger.warning("Denoise does not support for RealESR, ignored")
             model_name = f"realesr-animevideov3-x{scale}"
@@ -44,6 +47,8 @@ class Model:
                 tta_mode=tta,
             )
         elif model == "RealCUGAN":
+            from ncnnCugan import RealCUGAN
+
             model_name = f"up{scale}x-{'conservative' if denoise else 'no-denoise'}"
             if scale == 4 and model == "RealCUGAN":
                 logger.warning(
@@ -82,7 +87,7 @@ class MultiProcessModelNode:
         self.stop_event = stop_event
 
     def run(self):
-        model = Model(*self.model_args)
+        model = NCNNModel(*self.model_args)
         self.ready_event.set()
         while True:
             while self.in_queue.empty():

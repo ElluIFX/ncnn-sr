@@ -44,13 +44,18 @@ class FFmpegWriter:
         with open(filename, "w") as _:
             pass
         quality_option = "-crf" if "libx" in codec else "-q:v"
+        preset = "slow" if quality < 20 else "medium"
+        pix_fmt = "yuv420p" if "264" in codec else "yuv444p"
+        if "qsv" in codec:
+            pix_fmt = "nv12"
         command = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-f", "rawvideo", "-vcodec", "rawvideo",
             "-s", f"{width}x{height}",
-            "-pix_fmt", frame_fmt, "-r", str(fps),
+            "-pix_fmt", frame_fmt,
             "-i", "-",
-            "-c:v", codec, quality_option, str(quality)
+            "-c:v", codec, quality_option, str(quality), "-preset", preset,
+            "-pix_fmt", pix_fmt, "-r", str(fps)
         ]  # fmt: skip
         if extra_opts:
             for k, v in extra_opts.items():

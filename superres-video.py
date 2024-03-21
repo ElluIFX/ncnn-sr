@@ -223,7 +223,6 @@ def main():
         fps,
         codec=args.codec,
         quality=args.quality,
-        extra_opts={"-pix_fmt": "yuv420p"},
         convert_rgb=True,
         buffer_size=32,
     )

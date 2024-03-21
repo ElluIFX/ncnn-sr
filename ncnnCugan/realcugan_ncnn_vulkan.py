@@ -12,7 +12,6 @@ import os
 import pathlib
 import sys
 
-import cv2
 import numpy as np
 
 if __package__ is None:
