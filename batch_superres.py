@@ -2,6 +2,7 @@ import os
 import sys
 import time
 
+from rich.console import Console
 from rich.prompt import Confirm, FloatPrompt, IntPrompt, Prompt
 
 path = os.path.abspath(os.path.dirname(__file__))
@@ -9,29 +10,45 @@ target = "py -3.7 ./superres-video.py"
 
 filelist = []
 arg_scale = []
-arg_cu = []
-arg_denoise = []
+arg_model = []
 extra_args = ""
+
+print = Console().print
 
 if not os.path.normcase(os.getcwd()) == os.path.normcase(path):
     os.chdir(path)
-    print("Changed cwd to: " + path)
+    print(f"[blue]Changed cwd to: {path}")
 
 path = r'"' + path + r'"'
 
 
 def get_arg():
-    scale = FloatPrompt.ask("Resolution scale", default=2.0)
+    scale = FloatPrompt.ask("[green]Resolution scale", default=2.0)
     arg_scale.append(scale)
-
-    cugan = Confirm.ask("Use cugan (or esrgan)", default=False)
-    arg_cu.append(cugan)
-
-    if arg_cu[-1]:
-        denoise = Confirm.ask("Denoise", default=True)
-        arg_denoise.append(denoise)
-    else:
-        arg_denoise.append(False)
+    while True:
+        model = Prompt.ask(
+            "[green]Model [yellow](? for help)",
+            choices=["janai3", "janai2", "cugan", "esr", "?"],
+            default="janai2",
+        )
+        if model == "?":
+            print("[blue]Sharpness: [green]esr > cugan > janai2 > janai3")
+            print("[blue]Details:   [green]esr < cugan < janai2 < janai3")
+            continue
+        break
+    cmd = (
+        "--model "
+        + ["AnimeJanaiV3", "AnimeJanaiV2", "RealCUGAN", "RealESR"][
+            ["janai3", "janai2", "cugan", "esr"].index(model)
+        ]
+    )
+    if model == "cugan":
+        if Confirm.ask("[green]Denoise", default=False):
+            cmd += " --denoise"
+    elif "janai" in model:
+        cmp = IntPrompt.ask("[green]Compact", default=0, choices=["0", "1", "2"])
+        cmd += f" --compact {cmp}"
+    arg_model.append(cmd)
     print()
 
 
@@ -44,13 +61,15 @@ for f in in_file:
     else:
         ff = f
     filelist.append(ff)
-    print(f"Get file-{i:02d} path: ", f)
+    print(f"[green]Get file-{i:02d} path: [reset] {f}")
 
     get_arg()
 
 while True:
     i += 1
-    get = Prompt.ask(f"Input file-{i:02d} path").strip()
+    get = Prompt.ask(
+        f"[green]Input file-{i:02d} path [yellow](return to finish)"
+    ).strip()
     if get == "":
         break
     if not get.startswith(r'"'):
@@ -63,15 +82,15 @@ while True:
 print()
 
 extra_args = ""
-poweroff = Confirm.ask("Poweroff after superres", default=False)
-crf = IntPrompt.ask("Quality", default=17)
+poweroff = Confirm.ask("[green]Poweroff after superres", default=False)
+crf = IntPrompt.ask("[green]Quality", default=17)
 extra_args += f"--quality {crf} "
-if Confirm.ask("Use HEVC", default=False):
+if Confirm.ask("[green]Use HEVC", default=False):
     extra_args += "--codec hevc_qsv "
 
 
 def get_extra_args():
-    get = Prompt.ask("> Extra args (? for help)").strip()
+    get = Prompt.ask("[green]> Extra args [yellow](? for help)").strip()
     if len(get) == 0:
         return ""
     if get[0] == "?":
@@ -87,41 +106,34 @@ extra_args += get_extra_args()
 
 print()
 i = 0
-for file, scale, cu, denoise in zip(filelist, arg_scale, arg_cu, arg_denoise):
+for file, scale, model in zip(filelist, arg_scale, arg_model):
     i += 1
-    print(
-        f"File-{i:02d}: {file}\n> Args: Res-scale={scale} cugan={cu} denoise={denoise}"
-    )
+    print(f"[blue]File-{i:02d}: {file}\n[green]> Args: Res-scale={scale} Model={model}")
     print()
-print(f"Global args: poweroff={poweroff} crf={crf} extra_args={extra_args}")
-print()
-input("Check above. Press Enter to continue...")
-print("Starting superres")
+print(f"[green]Global args: poweroff={poweroff} crf={crf} extra_args={extra_args}")
+print("\n[yellow]Check above. Press Enter to continue...")
+input("")
+print("[green]Starting process")
 
 error_files = []
 t_start = time.time()
 i = 0
-for file, scale, cu, denoise in zip(filelist, arg_scale, arg_cu, arg_denoise):
+for file, scale, model in zip(filelist, arg_scale, arg_model):
     i += 1
-    command = f"{target} --scale {scale} "
-    if cu:
-        command += "--model RealCUGAN "
-        if denoise:
-            command += "--denoise "
-    else:
-        command += "--model RealESR "
+    command = f"{target} --scale {scale} {model} "
     command += f"{extra_args} "
     command += file
-    print(f"[{i}/{len(filelist)}] command: {command}")
+    print(f"[yellow][{i}/{len(filelist)}] command: {command}")
     ret = os.system(command)
-    print(f"[{i}/{len(filelist)}] Done file: {file} ret: {ret}")
+    print(f"[green][{i}/{len(filelist)}] Done file: {file} ret: {ret}")
     if ret != 0:
         error_files.append(file)
 
-print("Finished inference")
-print(f"Total cost: {(time.time() - t_start)/60:.2f} mins")
-print("Some files returned error:", error_files)
+print("[green]Finished inference")
+print(f"[yellow]Total cost: {(time.time() - t_start)/60:.2f} mins")
+if error_files:
+    print("[red]Some files returned error:\n" + "\n".join(error_files))
 if poweroff:
-    print("Poweroff in 60 seconds")
+    print("[yellow]Poweroff in 60 seconds")
     os.system("shutdown -s -t 60")
-input("Press Enter to exit")
+input("[yellow]Press Enter to exit")

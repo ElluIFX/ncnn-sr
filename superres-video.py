@@ -31,7 +31,7 @@ def main():
         enc.extend(codec[0])
     enc_def = "h264_qsv" if "h264_qsv" in enc else "libx264"
 
-    parser = argparse.ArgumentParser(description="Use RealESRGan enhance video")
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "video",
         metavar="VIDEO_PATH",
@@ -43,9 +43,8 @@ def main():
         "--model",
         dest="model",
         type=str,
-        default="RealESR",
-        choices=["RealESR", "RealCUGAN"],
-        help="default: RealESR, available: RealESR, RealCUGAN",
+        default="AnimeJanaiV3",
+        choices=["RealESR", "RealCUGAN", "AnimeJanaiV3", "AnimeJanaiV2"],
     )
     parser.add_argument(
         "--denoise",
@@ -59,6 +58,14 @@ def main():
         type=float,
         default=2,
         help="The final upsampling scale of the video resolution (<4.0)",
+    )
+    parser.add_argument(
+        "--compact",
+        dest="compact",
+        type=int,
+        default=1,
+        choices=[0, 1, 2],
+        help="Compact mode for AnimeJanaiVx, 2 is super-ultra-compact",
     )
     parser.add_argument(
         "--tilesize",
@@ -80,7 +87,11 @@ def main():
         "--gpu", dest="gpu", type=int, default=0, help="GPU device to use"
     )
     parser.add_argument(
-        "--workers", dest="workers", type=int, default=4, help="Number of workers"
+        "--workers",
+        dest="workers",
+        type=int,
+        default=3,
+        help="Number of worker processes",
     )
     parser.add_argument(
         "--codec",
@@ -147,6 +158,8 @@ def main():
     logger.add("superres.log", level="DEBUG", encoding="utf-8", rotation="1 MB")
 
     true_scale = ceil(args.scale)
+    if true_scale == 1:
+        true_scale = 2
     assert true_scale in [2, 3, 4], "Scale out of range"
     target_scale = args.scale
     args.scale = true_scale
@@ -178,7 +191,14 @@ def main():
     ), f"Start frame should be smaller than total frame ({tot_frame})"
 
     video_path_wo_ext, ext = os.path.splitext(args.video)
-    video_path_prefix = f"{video_path_wo_ext}_{target_scale}X_{args.model}_noaudio"
+    model_suffix = (
+        "_dn"
+        if (args.denoise and args.model == "RealCUGAN")
+        else ("_c" + str(args.compact) if "AnimeJanai" in args.model else "")
+    )
+    video_path_prefix = (
+        f"{video_path_wo_ext}_{target_scale}X_{args.model}{model_suffix}_noaudio"
+    )
     video_path = f"{video_path_prefix}.{args.ext}"
 
     continue_process = False
@@ -200,12 +220,13 @@ def main():
 
     model = MultiProcessModel(
         args.workers,
-        args.scale,
-        args.model,
-        args.denoise,
-        args.tilesize,
-        args.tta,
-        args.gpu,
+        scale=args.scale,
+        model=args.model + "_NCNN",
+        compact=args.compact,
+        denoise=args.denoise,
+        tilesize=args.tilesize,
+        tta=args.tta,
+        gpu=args.gpu,
     )
 
     def notify_callback(frame_id: int):

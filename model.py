@@ -3,13 +3,13 @@ import os
 import sys
 import time
 from multiprocessing import Event, Queue, current_process
-from typing import List
+from typing import Any, Dict, List
 
 import numpy as np
 from loguru import logger
 
 if current_process().name != "MainProcess":
-    logger.remove()  # Disable logging in child processes
+    logger.add(sys.stderr, level="ERROR", enqueue=True)
 
 
 def check_for_ncnn():
@@ -23,32 +23,30 @@ def check_for_ncnn():
     sys.path.append(dll_folder_path)
 
 
-class NCNNModel:
-    def __init__(
-        self,
-        scale: int,
-        model,
-        denoise: bool,
-        tilesize: int,
-        tta: bool,
-        gpu: int,
-    ) -> None:
-        logger.info("Initializing ncnn model...")
-        if model == "RealESR":
+class Model:
+    def __init__(self, args: Dict[str, Any]) -> None:
+        model = args["model"]
+        if model.endswith("NCNN"):
+            check_for_ncnn()
+        if model == "RealESR_NCNN":
             from ncnnRealESR import RealESRGAN
 
+            denoise = args["denoise"]
+            scale = args["scale"]
             if denoise:
                 logger.warning("Denoise does not support for RealESR, ignored")
             model_name = f"realesr-animevideov3-x{scale}"
             self.model = RealESRGAN(
-                gpuid=gpu,
+                gpuid=args["gpu"],
                 model=model_name,
-                tilesize=tilesize,
-                tta_mode=tta,
+                tilesize=args["tilesize"],
+                tta_mode=args["tta"],
             )
-        elif model == "RealCUGAN":
+        elif model == "RealCUGAN_NCNN":
             from ncnnCugan import RealCUGAN
 
+            denoise = args["denoise"]
+            scale = args["scale"]
             model_name = f"up{scale}x-{'conservative' if denoise else 'no-denoise'}"
             if scale == 4 and model == "RealCUGAN":
                 logger.warning(
@@ -57,15 +55,30 @@ class NCNNModel:
             else:
                 model_name = "pro-" + model_name
             self.model = RealCUGAN(
-                gpuid=gpu,
+                gpuid=args["gpu"],
                 model=model_name,
-                num_threads=4,
-                tilesize=tilesize,
-                tta_mode=tta,
+                num_threads=1,
+                tilesize=args["tilesize"],
+                tta_mode=args["tta"],
+            )
+        elif model == "AnimeJanaiV3_NCNN" or model == "AnimeJanaiV2_NCNN":
+            from ncnnRealESR import RealESRGAN
+
+            ver = model.split("_")[0][-1]
+            model_name = [
+                f"animejanai-v{ver}-compact-x2",
+                f"animejanai-v{ver}-ultra-compact-x2",
+                f"animejanai-v{ver}-super-ultra-compact-x2",
+            ][args["compact"]]
+
+            self.model = RealESRGAN(
+                gpuid=args["gpu"],
+                model=model_name,
+                tilesize=args["tilesize"],
+                tta_mode=args["tta"],
             )
         else:
             raise ValueError(f"Unknown model: {model}")
-        logger.info(f"Loaded model: [{model}]{model_name} with device {gpu}")
 
     def enhance(self, frame: np.ndarray) -> np.ndarray:
         return self.model.enhance(frame)
@@ -74,7 +87,7 @@ class NCNNModel:
 class MultiProcessModelNode:
     def __init__(
         self,
-        model_args: List,
+        model_args: Dict[str, Any],
         in_queue: Queue,
         out_queue: Queue,
         ready_event: Event,  # type: ignore
@@ -86,8 +99,9 @@ class MultiProcessModelNode:
         self.ready_event = ready_event
         self.stop_event = stop_event
 
+    @logger.catch()
     def run(self):
-        model = NCNNModel(*self.model_args)
+        model = Model(self.model_args)
         self.ready_event.set()
         while True:
             while self.in_queue.empty():
@@ -109,22 +123,10 @@ class MultiProcessModel:
     def __init__(
         self,
         worker_num: int,
-        scale: int,
-        model,
-        denoise: bool,
-        tilesize: int,
-        tta: bool,
-        gpu: int,
+        **kwargs,
     ) -> None:
         self.worker_num = worker_num
-        if denoise and model == "RealESR":
-            logger.warning("Denoise does not support for RealESR, ignored")
-            denoise = False
-        if scale == 4 and model == "RealCUGAN":
-            logger.warning(
-                "RealCUGAN pro model not support 4x scale yet, fallback to legacy model"
-            )
-        self._model_args = [scale, model, denoise, tilesize, tta, gpu]
+        self._model_args = kwargs
         self._procs: List[mp.Process] = []
         self._in_queues: List[mp.Queue] = []
         self._out_queues: List[mp.Queue] = []
